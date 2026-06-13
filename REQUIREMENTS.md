@@ -48,20 +48,23 @@ A self-hosted web application that lets household members track shared income an
 
 ### 4.2 Itemized Purchases
 - A transaction may optionally include a line-item breakdown of what was bought — some bills are itemized, some are just a single total, and both must be supported
-- Each line item records: **name**, **brand**, **default unit of measure**, **unit price**, **quantity**, **unit of measure purchased**, and optionally **tax**; item total = (price × quantity) + tax (with unit conversion applied — see 4.2.2). If tax is not entered, it is skipped in the calculation.
-- Each line item computes its total price based on the conversion between **unit of measure purchased** and **default unit of measure**, multiplied by the quantity, plus any optional item-level tax, to get the line total
+- Each line item records: **name**, **brand** (auto-suggested from past entries), **default unit of measure**, **unit price**, **quantity**, **unit of measure purchased**, and optionally **tax** and **discount**.
+  - Quantities and amounts can be **negative** to support recording **Returns/Refunds**.
+- Each line item computes its total price using the formula: `item total = (normalized_price × quantity) - discount + tax` (where `normalized_price` is computed via unit conversion — see 4.2.2). If tax or discount are not entered, they are skipped.
 - Each line item can carry its own **category** (optional; inherits from the parent transaction if not set — see 4.1) and its own **purchase-nature tag** (Need/Want/Impulsive — see 4.6), independent of the parent transaction — e.g., a single grocery run can have milk tagged "Need" and chocolate tagged "Impulsive"
-- **Rollup sum validation**: The strict formula is `Sum(Line Item Totals) + GST Paid (transaction level) + Delivery Charges = Transaction Amount`. However, the UI must provide an override flag to enter the transaction amount manually when strict sums do not exactly match the actual amount paid.
-- Item-level data feeds into reports/analytics (e.g., "how much have I spent on coffee this year", tracking how a specific product's price moves over time or across stores)
+- **Rollup sum validation**: The strict formula is `Sum(Line Item Totals) + GST Paid (transaction level) + Delivery Charges - Transaction Discount = Transaction Amount`. However, the UI must provide an override flag to enter the transaction amount manually when strict sums do not exactly match the actual amount paid.
+- Item-level data feeds into reports/analytics (e.g., tracking how a specific product's price moves over time, brand price comparisons, or seeing the "Price per 100g" to track inflation)
 
 ### 4.2.1 Product Catalog (auto-maintained)
 - A product catalog is maintained automatically from line items — no manual product management is required for data entry; the catalog is **private to each household**
-- **Product Identity**: Products are uniquely identified by **name**. The line item records the **brand**, allowing price comparisons across different brands for the same product name (e.g., "Ground Nut" from Tata vs Ratnadeep).
+- **Product Identity**: Products are uniquely identified by **name**. The catalog also optionally supports storing a **Barcode (UPC/EAN)** to aid in exact OCR matching.
+- **Brand Tracking**: The line item records the **brand** (with auto-suggest to prevent typos like "Tata" vs "TATA"). This allows deep price comparisons across different brands for the same product name (e.g., "Ground Nut" from Tata vs Ratnadeep).
 - When a line item name is entered on the transaction form:
-  - **Existing product**: if the name matches an existing product (exact or fuzzy search), selecting it auto-populates the line item's price unit from the product's stored **default unit**, and auto-assigns the **category** based on past purchases (or setup defaults).
-  - **New product**: if no match is found, the product is created automatically when the transaction is saved, using the **price unit entered on that line item** as the product's default unit and saving its category for future auto-categorization — this ensures the default unit and category are captured from the user's actual intent.
+  - **Existing product**: if the name (or barcode) matches an existing product (exact or fuzzy search), selecting it auto-populates the line item's price unit from the product's stored **default unit**, and auto-assigns the **category** based on past purchases (or setup defaults).
+  - **New product**: if no match is found, the product is created automatically when the transaction is saved, using the **price unit entered on that line item** as the product's default unit and saving its category for future auto-categorization.
 - Products can also be explicitly created from the dropdown (showing `Create "X"`) which creates the product immediately with the current price unit and category.
-- Products, their default units, and their default categories can be viewed and edited in **Settings → Products**. Categorization should be part of this setup.
+- Products, their default units, barcodes, and their default categories can be viewed and edited in **Settings → Products**. Categorization should be part of this setup.
+  - **Merge Utility**: Admins can merge duplicate products (e.g., "Milkk" into "Milk") to clean up OCR errors or manual typos.
 - Changing a product's default unit in Settings **auto-converts all linked historical line item prices and quantities** to the new unit, preserving the total amount paid
 - **Price history**: each product accumulates a price history across all transactions, filterable by brand; this can be viewed per-product in Settings and feeds into inflation tracking and store/brand-price comparison reports
 
@@ -74,13 +77,36 @@ A self-hosted web application that lets household members track shared income an
 - When entering a line item, the user picks a unit of measure; if it differs from the product's default unit, the app automatically applies the conversion to compute the normalized price and line total
 
 ### 4.3 Stores & Platforms
-- Users maintain a managed list of stores/platforms (similar to Accounts and Categories), e.g., "Amazon", "Big Bazaar", "Walmart", "Flipkart"
-- Each store is classified by platform type: **Store** (physical/in-person) or **Online**
-- A transaction can optionally be linked to the store/platform it was made through, enabling store-based reporting
+- Users maintain a managed list of individual stores/platforms (e.g., "Amazon", "Blinkit", "Ratnadeep", "KPN") that can be linked to transactions
+- Stores are organised within a user-managed **hierarchical store category tree** (unlimited nesting depth, same model as Categories and Account Types). Any member can add, rename, or delete store categories; deletion is blocked if any store references that category.
+- The tree ships pre-seeded with:
+  ```
+  Online
+  ├── Quick Commerce    (e.g., Blinkit, Zepto, Swiggy Instamart)
+  ├── E-commerce        (e.g., Amazon, Flipkart)
+  └── Food Delivery     (e.g., Swiggy, Zomato)
+  Physical
+  ├── Supermarket       (e.g., Ratnadeep, DMart, Big Bazaar)
+  └── Local Store       (e.g., neighbourhood kirana shops)
+  ```
+- Individual stores are leaf nodes; parent categories exist only for roll-up reporting
+- Reports can filter/group at any level of the tree — e.g., "all Quick Commerce spending this month" or "Blinkit vs Zepto breakdown"
+- A transaction can optionally be linked to one store, enabling store-based reporting
 
 ### 4.4 Accounts (Payment Sources)
-- Any member (Admin or Member role) can create and manage named accounts representing where money moves through (e.g., "HDFC Salary A/C", "ICICI Credit Card", "GPay UPI")
-- Each account is classified by type: **Bank**, **Credit Card**, or **UPI/Wallet** (fixed enum — not user-extensible)
+- Any member (Admin or Member role) can create and manage named accounts representing where money moves through (e.g., "SBI Savings", "ICICI Credit Card", "SBI UPI")
+- Each account is classified by an **Account Type** drawn from a user-managed hierarchical type tree (unlimited nesting depth, same as Categories — see 4.5). Any member can add, rename, or delete account types; deletion is blocked if any account references that type.
+- The type tree ships pre-seeded with:
+  ```
+  Bank Account
+  ├── Savings Account
+  └── Current Account
+  Credit Card
+  Debit Card
+  UPI
+  Wallet
+  ```
+- Reports can filter and group spending at any level of the type hierarchy — e.g., "all Credit Card spending" rolls up all credit card accounts; "SBI UPI only" drills down to a single account
 - Every transaction (income or expense) is optionally linked to one account
 - **Account lifecycle**: accounts can be **deactivated** — hidden from all dropdowns and forms, but retained in historical data and reports. **Only an Admin can deactivate or re-activate an account.**
 - No running-balance tracking — accounts exist to categorize and report on money flow, not to reconcile against real-world bank/card balances
@@ -129,7 +155,7 @@ All reports support **PDF and CSV export**.
 - Custom date-range comparisons (e.g., this quarter vs. last, year-over-year)
 - Spending and income breakdown by account/payment source (e.g., "spend via Credit Card this month", "income received per account")
 - Item-level analytics: spend on a specific item/product over time and across stores (e.g., price comparison, inflation tracking)
-- Spending breakdown by store/platform (e.g., "total spent at Amazon this year")
+- Spending breakdown by store/platform at any level of the store category hierarchy (e.g., "total Quick Commerce spend this year", "Blinkit vs Zepto breakdown", "total spent at Amazon this year")
 - Spending breakdown by purchase-nature tag (Need vs. Want vs. Impulsive) and how that mix trends over time — the core "wasteful spending" insight
 - Per-person breakdowns: spending by who made the purchase ("spent by") and by who it was for ("spent for")
 - Chart types are chosen to best fit each report (bar for comparisons, line for trends, pie/donut for breakdowns)
@@ -206,8 +232,6 @@ These appear as dropdowns with fixed options. No user or admin can add new value
 | User role | SuperAdmin, Admin, Member |
 | Household registration status | Pending, Approved, Rejected |
 | User status | Active, Inactive |
-| Account type | Bank, Credit Card, UPI/Wallet |
-| Store / platform type | Store (physical), Online |
 | Budget period | Monthly, Annual |
 | Recurring frequency | Monthly, Annual, Custom Interval |
 | Transaction status | Confirmed, Pending Review |
@@ -220,6 +244,8 @@ These ship with default values but any household member can add, rename, or remo
 |---|---|---|
 | Expense categories | Groceries, Rent, Utilities, Transport, Entertainment | Unlimited nesting; deletion blocked if in use (see 4.5) |
 | Income categories | Salary/Wages, Rental Income, Freelance/Business Income, Investments/Interest/Dividends | Same nesting and deletion rules |
+| Account types | Bank Account (› Savings Account, › Current Account), Credit Card, Debit Card, UPI, Wallet | Unlimited nesting; deletion blocked if any account references the type (see 4.4) |
+| Store categories | Online (› Quick Commerce, › E-commerce, › Food Delivery), Physical (› Supermarket, › Local Store) | Unlimited nesting; deletion blocked if any store references the category (see 4.3) |
 | Purchase nature tags | Need, Want, Impulsive | Deletion blocked if any transaction/line item references the tag |
 | Payment methods | Cash, Credit Card, Debit Card, UPI, Bank Transfer, Cheque | Free-text label; no special system behaviour per entry |
 | "Spent for" named people | *(none pre-seeded beyond fixed options below)* | Household members + "Whole household / shared" always appear automatically; this list adds extra named people (e.g., kids, guests) without app logins |
