@@ -1,0 +1,46 @@
+spring:
+  application:
+    name: budget-tracker
+  profiles:
+    active: dev
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+  session:
+    jdbc:
+      initialize-schema: always
+    timeout: 7d
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    path: /api/v1/api-docs
+  swagger-ui:
+    path: /api/v1/swagger-ui.html
+
+app:
+  receipt-storage-path: ${RECEIPT_STORAGE_PATH:./receipts}
+  aes-secret-key: ${AES_SECRET_KEY:dev-secret-key-32-chars-padding!!}

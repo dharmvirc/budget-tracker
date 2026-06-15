@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/budgettracker
+    username: budgettracker
+    password: budgettracker
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    show-sql: false
+
+springdoc:
+  swagger-ui:
+    enabled: true
