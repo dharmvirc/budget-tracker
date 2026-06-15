@@ -98,6 +98,7 @@ budget-tracker/
 │       │   ├── common/           # GlobalExceptionHandler, ApiResponse, PagedResponse
 │       │   └── domain/
 │       │       ├── household/    # entity / repo / service / controller / dto
+│       │       ├── person/       # Person entity; PersonService enforces person creation on user create
 │       │       ├── user/
 │       │       ├── category/
 │       │       ├── accounttype/
@@ -129,7 +130,7 @@ budget-tracker/
 │       │   ├── auth/
 │       │   ├── dashboard/
 │       │   ├── transactions/
-│       │   ├── settings/     # categories, accounts, stores, people, tags, units, email
+│       │   ├── settings/     # categories, accounts, stores, persons, tags, units, email
 │       │   ├── budgets/
 │       │   ├── recurring/
 │       │   ├── reports/
@@ -157,19 +158,29 @@ Full schema defined in a single `V1__create_schema.sql` migration at project sta
 - All timestamps: `TIMESTAMPTZ` (timezone-aware)
 - Soft-delete via `is_active` flag where needed (accounts); hard delete everywhere else with FK guard
 - Hierarchical tables: adjacency list (`parent_id BIGINT REFERENCES self`) — traversed with PostgreSQL recursive CTEs (`WITH RECURSIVE`)
-- `household_id` on every tenant-scoped table; indexed
+- `household_id` on every tenant-scoped table; indexed; nullable only on `persons` and `users` for the SuperAdmin
+- **Person–User invariant**: every `users` row has a non-null `person_id`; creating a user must atomically create (or link to) a `persons` row. Deleting or deactivating a user never deletes the person row — historical transactions remain attributable.
 
 ### 4.2 Core Tables
 
 ```
 ── Auth & Tenancy ─────────────────────────────────────────────
-households          id, name, registration_status, created_at
-users               id, household_id (nullable for SUPER_ADMIN),
-                    name, email, password_hash, role
-                    (SUPER_ADMIN | ADMIN | MEMBER),
+persons             id, household_id (nullable — null for SuperAdmin),
+                    name,
+                    is_whole_household BOOLEAN DEFAULT false
+                    -- one system-seeded row per household where
+                    -- is_whole_household = true represents "Whole household / shared"
+                    -- SuperAdmin person: household_id = NULL, name = 'Admin'
+
+users               id, person_id → persons.id (NOT NULL, UNIQUE),
+                    household_id (nullable — null for SUPER_ADMIN),
+                    email, password_hash,
+                    role (SUPER_ADMIN | ADMIN | MEMBER),
                     status (ACTIVE | INACTIVE),
                     must_change_password, created_at, last_active_at
+
 spring_session      (Spring Session JDBC — auto-created)
+households          id, name, registration_status, created_at
 
 ── Hierarchical Reference Data ────────────────────────────────
 expense_categories  id, household_id, parent_id, name, display_order
@@ -180,8 +191,7 @@ store_categories    id, household_id, parent_id, name, display_order
 ── Flat Reference Data ────────────────────────────────────────
 payment_methods     id, household_id, name, display_order
 purchase_nature_tags id, household_id, name, display_order
-named_people        id, household_id, name
-                    -- non-login "spent for" targets (kids, guests)
+                    -- non-login people (kids, guests) live in persons table now
 units_of_measure    id, household_id, name, symbol, is_system
 unit_conversions    id, household_id, from_unit_id, to_unit_id,
                     factor, is_system
@@ -204,10 +214,9 @@ transactions        id, household_id,
                     payment_method_id, account_id, store_id,
                     expense_category_id, income_category_id,
                     purchase_nature_tag_id,
-                    spent_by_user_id,
-                    spent_for_user_id,           -- nullable
-                    spent_for_named_person_id,   -- nullable
-                    spent_for_whole_household,   -- boolean
+                    spent_by_person_id → persons.id,  -- NOT NULL; who made the purchase
+                    spent_for_person_id → persons.id, -- NOT NULL; defaults to household's
+                                                      -- is_whole_household = true row
                     description,
                     gst_percent, gst_paid, delivery_charges,
                     discount,
@@ -431,7 +440,8 @@ Each phase produces something runnable. Phases are ordered by dependency; where 
 - [ ] `application-dev.yml` with local DB credentials
 - [ ] Flyway enabled; write full `V1__create_schema.sql` (all tables from §4.2 + indexes from §4.3)
 - [ ] Seed migration `V2__seed_reference_data.sql`:
-  - SuperAdmin user (default password, `must_change_password = true`)
+  - SuperAdmin person row (`household_id = NULL, name = 'Admin'`)
+  - SuperAdmin user linked to that person (default password, `must_change_password = true`)
   - System units (kg, g, mg, L, mL, each, dozen) + system conversions
   - Default expense categories (Groceries, Rent, Utilities, Transport, Entertainment)
   - Default income categories (Salary/Wages, Rental Income, Freelance/Business Income, Investments/Interest/Dividends)
@@ -455,14 +465,22 @@ Each phase produces something runnable. Phases are ordered by dependency; where 
 - [ ] Spring Session JDBC (`spring_session` tables auto-created)
 - [ ] `AuthController`: `POST /login`, `POST /logout`, `GET /me`
 - [ ] SuperAdmin "must change password" enforcement (redirect on first login)
-- [ ] Household self-registration (`POST /api/v1/households/register`) → status PENDING + notification to SuperAdmin
+- [ ] Household self-registration (`POST /api/v1/households/register`):
+  - Atomically creates: household (PENDING) + person row (household_id = new household) + admin user linked to that person
+  - Sends notification to SuperAdmin
 - [ ] SuperAdmin panel: list pending registrations, approve/reject
-- [ ] On approval: household status → APPROVED, registrant becomes ADMIN
-- [ ] Admin member management: `POST /api/v1/members` (create), `PUT /api/v1/members/:id`, `DELETE /api/v1/members/:id` (deactivate)
+- [ ] On approval: household status → APPROVED, registrant's user status → ACTIVE; also seed the household's `is_whole_household = true` person row
+- [ ] Admin member management:
+  - `POST /api/v1/members` — atomically creates a `persons` row then a `users` row linked to it
+  - `PUT /api/v1/members/:id` — updates user + their linked person name
+  - `DELETE /api/v1/members/:id` (deactivate user; person row is **never** deleted)
+- [ ] `PersonService.createWithUser()` — single transactional method enforcing the person-first invariant; all user creation goes through this
+- [ ] `GET /api/v1/persons` — lists all persons in the household (members + non-login people); used to populate "spent by" / "spent for" dropdowns
+- [ ] `POST /api/v1/persons` — create a non-login person (kid, guest); `PUT`, `DELETE` (deletion blocked if referenced by any transaction)
 - [ ] Role-based access checks (`@PreAuthorize`) wired on all above endpoints
-- [ ] Frontend: login page, register page, SuperAdmin approval panel, member management page
+- [ ] Frontend: login page, register page, SuperAdmin approval panel, member management page, Settings → People (non-login persons)
 
-**Verification**: register → SuperAdmin approves → login as Admin → create a Member → login as Member → logout.
+**Verification**: register → SuperAdmin approves → confirm "Whole household" person row seeded → login as Admin → create a Member (confirm person row created) → create a non-login person "Kid" → login as Member → confirm all three appear in "spent by / for" dropdowns → logout.
 
 ---
 
@@ -664,6 +682,13 @@ For each entity below, implement: list endpoint, create, update, delete (with in
 ---
 
 ## 8. Cross-Cutting Concerns
+
+### Person–User invariant
+All user creation (household registration, Admin adding a member, seed migration) goes through `PersonService.createWithUser()` — a single `@Transactional` method that:
+1. Inserts the `persons` row
+2. Inserts the `users` row with `person_id` pointing to step 1
+
+Deactivating a user sets `users.status = INACTIVE` only. The `persons` row is never deleted — it anchors historical transactions. The "Whole household / shared" sentinel person row (`is_whole_household = true`) is seeded per household on registration approval and is never editable or deletable via the UI.
 
 ### Tenant isolation enforcement
 Every service method that reads/writes household-scoped data must:
