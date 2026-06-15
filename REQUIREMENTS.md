@@ -217,7 +217,7 @@ All reports support **PDF and CSV export**.
 ### 5.3 Technology Stack
 - **Frontend**: React
 - **Backend**: Spring Boot (Java)
-- **Database**: MariaDB
+- **Database**: PostgreSQL
 - **OCR & Extraction**: Self-hosted Tesseract with optional local LLM integration (e.g., Ollama) for intelligent parsing of raw text (no third-party cloud services)
 
 ### 5.4 Data Ownership & Backup
