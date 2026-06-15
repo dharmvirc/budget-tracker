@@ -239,7 +239,7 @@ This section defines every managed list and enum in the system, who can modify i
 | Currency | Indian Rupee (₹) |
 | Session inactivity timeout | 7 days |
 | Minimum password length | 8 characters |
-| Built-in unit conversions | kg ↔ g ↔ mg, L ↔ mL, each ↔ dozen (1 dozen = 12) |
+| Built-in unit conversions | Weight: kg ↔ g ↔ mg · Volume: L ↔ mL · Count: each ↔ dozen (1 dozen = 12) · Length: m ↔ cm ↔ mm, m ↔ ft (1 m = 3.28084 ft), ft ↔ in (1 ft = 12 in), yd ↔ ft (1 yd = 3 ft) |
 
 ### 6.2 Fixed Enums (seeded; not user-extensible)
 

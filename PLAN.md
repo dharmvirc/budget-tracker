@@ -442,7 +442,11 @@ Each phase produces something runnable. Phases are ordered by dependency; where 
 - [ ] Seed migration `V2__seed_reference_data.sql`:
   - SuperAdmin person row (`household_id = NULL, name = 'Admin'`)
   - SuperAdmin user linked to that person (default password, `must_change_password = true`)
-  - System units (kg, g, mg, L, mL, each, dozen) + system conversions
+  - System units (kg, g, mg, L, mL, each, dozen, m, cm, mm, ft, in, yd) + system conversions:
+      Weight: kg↔g (×1000), g↔mg (×1000)
+      Volume: L↔mL (×1000)
+      Count:  each↔dozen (×12)
+      Length: m↔cm (×100), cm↔mm (×10), m↔ft (×3.28084), ft↔in (×12), yd↔ft (×3)
   - Default expense categories (Groceries, Rent, Utilities, Transport, Entertainment)
   - Default income categories (Salary/Wages, Rental Income, Freelance/Business Income, Investments/Interest/Dividends)
   - Default account types (Bank Account › Savings / Current, Credit Card, Debit Card, UPI, Wallet)
