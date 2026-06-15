@@ -169,6 +169,24 @@ All reports support **PDF and CSV export**.
   - Auto-extracts amount, date, merchant, and — where the bill is itemized — individual line items
   - Extracted fields, including any line items, are always shown to the user for review/edit before the transaction is saved
 
+### 4.13 Online Invoice Import (Email-based)
+- Admin configures one or more **IMAP email accounts** in Settings → Email Accounts (see §6.4). Different platforms may send order emails to different inboxes; all configured accounts are monitored.
+- The system polls each account on a configurable interval (e.g., every hour) or via a manual **"Fetch now"** trigger. Only unprocessed emails are fetched — already-seen messages are skipped.
+- Emails from known platforms are automatically recognised by sender address/domain and parsed into structured invoice data:
+  - Order date and time
+  - Platform name — auto-linked to the store catalog (see §4.3)
+  - Line items: product name, quantity, unit price
+  - Delivery charges
+  - GST / taxes
+  - Total amount paid
+  - Payment method (extracted if present in the email)
+  - Platform Order ID (used for duplicate detection)
+- **Supported platforms** are defined as a configurable list of sender patterns (Admin-managed). Ships pre-configured for common Indian platforms: Amazon, Flipkart, Blinkit, Zepto, Swiggy Instamart, Swiggy, Zomato. Admin can add sender patterns for additional platforms.
+- **Duplicate guard**: the platform Order ID is stored against each imported transaction. Re-fetching the same email — or receiving the same order confirmation across two accounts — will not create a duplicate; it is silently skipped.
+- **Review queue**: all extracted invoices land in a pending review queue — nothing is auto-saved as a confirmed transaction. Each entry shows the source inbox, extracted fields, and a diff-style view so the user can edit before confirming.
+- **Unrecognised emails** (sender not in the platform list, or parsing fails) are surfaced separately in the review queue for manual handling or dismissal — they are never silently dropped.
+- Confirmed invoices are saved as transactions with full line items, linked to the correct store, and available for all reports immediately.
+
 ### 4.11 Notifications
 - In-app only (banners/badges) for budget alerts and upcoming bills — no email or push notifications
 
@@ -260,7 +278,8 @@ These ship with default values but any household member can add, rename, or remo
 | Custom unit conversions | Admin only | Admin only | Extends built-in units (e.g., "packet = 200 g") — see 4.2.2 |
 | Budgets (limit + period + thresholds) | Admin only | Admin only | All members can view; only Admin can create/edit/delete — see 4.7 |
 | Accounts (deactivation / reactivation) | Any member can create | **Admin only** can deactivate or reactivate | See 4.4 |
-| IMAP email connection | Admin only | Admin only | Credentials stored encrypted — see 4.10 |
+| IMAP email accounts | Admin only | Admin only | Multiple accounts supported; credentials stored encrypted; each account has a configurable poll interval — see §4.13 |
+| Platform sender patterns | Admin only | Admin only | Configurable list of sender address patterns used to recognise online platforms; ships pre-configured for Amazon, Flipkart, Blinkit, Zepto, Swiggy, Zomato — see §4.13 |
 
 ### 6.5 SuperAdmin-Only Actions
 
